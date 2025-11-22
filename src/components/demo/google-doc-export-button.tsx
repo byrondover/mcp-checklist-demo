@@ -1,19 +1,33 @@
-import { DocumentProps, pdf } from '@react-pdf/renderer'
-import { Loader2 } from 'lucide-react'
-import { ReactElement, useCallback, useEffect, useState } from 'react'
-import { toast } from 'sonner'
-import { Color } from '../printables/selects/select-color'
-import { Button } from '../ui/button'
+import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Border } from "../printables/selects/select-border";
+import { Button } from "../ui/button";
+import { LessonEntity } from "../../types/api-types";
+import {
+  generateHeaderRequests,
+  generateEmptyTableRequest,
+  generateTableContentRequests,
+  generateCreateFooterRequest,
+  generateFooterContentRequest
+} from "../../lib/google-doc-generator";
+import { YesNo } from "../../hooks/use-checklist-options";
 
-const SCOPES = 'https://www.googleapis.com/auth/drive.file'
-const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
+const SCOPES =
+  "https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file";
+const DISCOVERY_DOC = "https://docs.googleapis.com/$discovery/rest?version=v1";
 
 interface GoogleDocExportButtonProps {
-  canvasRef: React.RefObject<HTMLCanvasElement>
-  document: ReactElement<DocumentProps>
-  color: Color
-  sectionName: string
-  googleClientId: string
+  lessons: LessonEntity[];
+  courseName: string;
+  sectionName: string;
+  unitName: string;
+  border: Border;
+  includeClassName: YesNo;
+  courseClassName: string;
+  googleClientId: string;
+  teacherSignOff: YesNo;
+  includeVideoHyperlinks: YesNo;
 }
 
 declare global {
@@ -48,135 +62,182 @@ declare global {
   }
 }
 
-async function extractAllPagesAsImages(
-  document: ReactElement<DocumentProps>,
-  _canvasRef: React.RefObject<HTMLCanvasElement>,
-  scale: number = 2,
-  color: Color = Color.FULL_COLOR,
-): Promise<string[]> {
-  try {
-    const blob = await pdf(document).toBlob()
-    const url = URL.createObjectURL(blob)
-
-    const pdfjsLib = (window as Window & { pdfjsLib?: typeof import('pdfjs-dist') }).pdfjsLib
-    if (!pdfjsLib) {
-      throw new Error('PDF.js library not loaded')
-    }
-
-    const loadingTask = pdfjsLib.getDocument(url)
-    const pdfDoc = await loadingTask.promise
-
-    const images: string[] = []
-
-    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-      const page = await pdfDoc.getPage(pageNum)
-      const viewport = page.getViewport({ scale })
-
-      const canvas = window.document.createElement('canvas')
-      const context = canvas.getContext('2d')
-
-      if (!context) {
-        throw new Error('Failed to get canvas context')
-      }
-
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-
-      await page.render({
-        canvasContext: context,
-        viewport: viewport,
-        canvas: canvas,
-      }).promise
-
-      if (color === Color.BLACK_AND_WHITE) {
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
-        const data = imageData.data
-
-        for (let i = 0; i < data.length; i += 4) {
-          const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-          data[i] = gray
-          data[i + 1] = gray
-          data[i + 2] = gray
-        }
-
-        context.putImageData(imageData, 0, 0)
-      }
-
-      const dataUrl = canvas.toDataURL('image/png')
-      const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '')
-
-      images.push(base64Data)
-    }
-
-    URL.revokeObjectURL(url)
-
-    return images
-  } catch (error) {
-    console.error('Error extracting pages as images:', error)
-    throw error
-  }
-}
-
 export function GoogleDocExportButton({
-  canvasRef,
-  document: pdfDocument,
-  color,
+  lessons,
+  courseName,
   sectionName,
+  unitName,
+  border,
+  includeClassName,
+  courseClassName,
   googleClientId,
+  teacherSignOff,
+  includeVideoHyperlinks,
 }: GoogleDocExportButtonProps) {
-  const [isLoading, setIsLoading] = useState(false)
-  const [gapiInited, setGapiInited] = useState(false)
-  const [gisInited, setGisInited] = useState(false)
-  const [tokenClient, setTokenClient] = useState<{ requestAccessToken: () => void } | null>(null)
+  const [isLoading, setIsLoading] = useState(false);
+  const [gapiInited, setGapiInited] = useState(false);
+  const [gisInited, setGisInited] = useState(false);
+  const [tokenClient, setTokenClient] = useState<{
+    requestAccessToken: () => void;
+  } | null>(null);
+
+  const fetchDocumentContent = async (docId: string, token: string) => {
+    const response = await fetch(
+      `https://docs.googleapis.com/v1/documents/${docId}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!response.ok) throw new Error("Failed to fetch doc structure");
+    return await response.json();
+  };
 
   const handleExport = useCallback(
     async (accessToken: string) => {
       try {
-        // Extract all pages as images
-        await extractAllPagesAsImages(pdfDocument, canvasRef, 2, color)
+        const createRes = await fetch(
+          "https://www.googleapis.com/drive/v3/files",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: `Checklist - ${sectionName}`,
+              mimeType: "application/vnd.google-apps.document",
+            }),
+          }
+        );
+        const docData = await createRes.json();
+        const documentId = docData.id;
 
-        // Create a new Google Doc
-        const response = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,webViewLink', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: `Checklist - ${sectionName}`,
-            mimeType: 'application/vnd.google-apps.document',
-          }),
-        })
+        const headerRequests = generateHeaderRequests({
+          sectionName,
+          courseName,
+          unitName,
+          borderVariant: border,
+          includeClassName,
+          courseClassName,
+        });
 
-        if (!response.ok) {
-          throw new Error('Failed to create Google Doc')
+        await fetch(
+          `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ requests: headerRequests }),
+          }
+        );
+
+        for (const lesson of lessons) {
+          await fetch(
+            `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                requests: [generateEmptyTableRequest(lesson, teacherSignOff)],
+              }),
+            }
+          );
+
+          const updatedDoc = await fetchDocumentContent(
+            documentId,
+            accessToken
+          );
+
+          const content = updatedDoc.body.content;
+          const tableItem = content
+            .slice()
+            .reverse()
+            .find((item: any) => item.table);
+
+          if (tableItem && tableItem.table) {
+            const formatRequests = generateTableContentRequests(
+              lesson,
+              tableItem.startIndex,
+              tableItem.table.tableRows,
+              {
+                teacherSignOff,
+                includeVideoHyperlinks,
+              }
+            );
+
+            await fetch(
+              `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ requests: formatRequests }),
+              }
+            );
+          }
         }
 
-        const docData = await response.json()
+        const createFooterRes = await fetch(
+          `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ requests: [generateCreateFooterRequest()] }),
+          }
+        );
 
-        // Upload images to the document
-        // Note: This is a simplified version. In production, you'd need to:
-        // 1. Upload images to Google Drive
-        // 2. Insert content and tables into the document using Google Docs API
-        // 3. Apply the checklist styles and features to the document
-        // For this demo, we'll just create the doc and show the link
+        const footerResponseData = await createFooterRes.json();
+        const footerId =
+          footerResponseData.replies[0].createFooter.footerId;
 
-        if (docData.webViewLink) {
-          window.open(docData.webViewLink, '_blank')
-          toast.success('Google Doc created successfully!')
-        } else {
-          toast.error('Failed to get document link')
-        }
+        await fetch(
+          `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              requests: generateFooterContentRequest(footerId),
+            }),
+          }
+        );
 
-        setIsLoading(false)
+        toast.success("Google Doc created successfully!");
+        window.open(
+          `https://docs.google.com/document/d/${documentId}/edit`,
+          "_blank"
+        );
+        setIsLoading(false);
       } catch (error) {
         console.error('Error creating Google Doc:', error)
         toast.error('Failed to create Google Doc')
         setIsLoading(false)
       }
     },
-    [pdfDocument, canvasRef, color, sectionName],
-  )
+    [
+      lessons,
+      courseName,
+      sectionName,
+      unitName,
+      courseClassName,
+      border,
+      includeClassName,
+      teacherSignOff,
+      includeVideoHyperlinks,
+    ]
+  );
 
   useEffect(() => {
     // Load Google API script
