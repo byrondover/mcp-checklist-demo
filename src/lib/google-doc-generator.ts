@@ -351,11 +351,14 @@ export function generateCreateFooterRequest(): any {
 
 export function generateFooterContentRequest(
   footerId: string,
+  borderVariant: Border
 ): any[] {
+  const selectedBorderUrl = BORDER_URL_MAP[borderVariant] || BORDER_URL_MAP[Border.BORDER_1];
+
   return [
     {
       insertInlineImage: {
-        uri: BORDER_IMAGE_URL,
+        uri: selectedBorderUrl,
         endOfSegmentLocation: { segmentId: footerId },
         objectSize: { width: { magnitude: 450, unit: "PT" } },
       },
