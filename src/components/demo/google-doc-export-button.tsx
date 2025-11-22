@@ -209,7 +209,7 @@ export function GoogleDocExportButton({
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              requests: generateFooterContentRequest(footerId),
+              requests: generateFooterContentRequest(footerId, border),
             }),
           }
         );

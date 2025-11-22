@@ -2,7 +2,12 @@ import { LessonEntity } from "../types/api-types";
 import { Border } from "../components/printables/selects/select-border";
 import { YesNo } from "../hooks/use-checklist-options";
 
-const BORDER_IMAGE_URL = "https://i.imgur.com/YO0ENlB.png";
+const BORDER_URL_MAP: Record<string, string> = {
+  [Border.BORDER_1]: "https://res.cloudinary.com/dgixwid5g/image/upload/v1763829060/border-1_tpjndr.png",
+  [Border.BORDER_2]: "https://res.cloudinary.com/dgixwid5g/image/upload/v1763829100/border-2_ojxjr3.png",
+  [Border.BORDER_3]: "https://res.cloudinary.com/dgixwid5g/image/upload/v1763829122/border-3_l6jm4h.png",
+  [Border.BORDER_4]: "https://res.cloudinary.com/dgixwid5g/image/upload/v1763829149/border-4_shvqha.png",
+};
 
 const STATUS_COLORS: any = {
   MUST_DO: { red: 0.04, green: 0.32, blue: 0.58 },
