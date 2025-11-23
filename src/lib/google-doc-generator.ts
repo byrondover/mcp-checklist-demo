@@ -14,7 +14,7 @@ const BORDER_URL_MAP: Record<string, string> = {
     "https://res.cloudinary.com/dgixwid5g/image/upload/v1763829149/border-4_shvqha.png",
 };
 
-const STATUS_COLORS: any = {
+const STATUS_COLORS: Record<string, gapi.client.docs.RgbColor > = {
   MUST_DO: { red: 0.04, green: 0.32, blue: 0.58 },
   SHOULD_DO: { red: 0.96, green: 0.62, blue: 0.04 },
   ASPIRE_TO_DO: { red: 0.84, green: 0.69, blue: 0.0 },
@@ -34,6 +34,8 @@ const HEADER_HEIGHT = 100;
 const ROW_HEIGHT = 30;
 const TABLE_PADDING = 20;
 const SPACING_BETWEEN_TABLES = 15;
+
+export type DocsRequest = gapi.client.docs.Request;
 
 export interface DocGenerationData {
   courseName: string;
@@ -72,6 +74,27 @@ export function shouldInsertPageBreak(
   return currentPageHeight + tableHeight > AVAILABLE_PAGE_HEIGHT;
 }
 
+export interface TableOperation {
+  index: number;
+  text: string;
+  link?: string;
+  linkColor?: { red: number; green: number; blue: number };
+  isCheckbox?: boolean;
+  style?: gapi.client.docs.TextStyle;
+  alignment?: "START" | "CENTER" | "END" | "JUSTIFIED";
+}
+
+export interface TableCell {
+  startIndex: number;
+  endIndex?: number;
+}
+
+export interface TableRow {
+  tableCells: TableCell[];
+}
+
+export type TableRowData = TableRow[];
+
 export class PageTracker {
   private currentHeight: number;
 
@@ -92,7 +115,7 @@ export class PageTracker {
   }
 }
 
-export function generateDocumentStyleRequest(): any {
+export function generateDocumentStyleRequest(): DocsRequest {
   return {
     updateDocumentStyle: {
       documentStyle: {
@@ -106,8 +129,8 @@ export function generateDocumentStyleRequest(): any {
   };
 }
 
-export function generateHeaderRequests(data: DocGenerationData): any[] {
-  const requests: any[] = [];
+export function generateHeaderRequests(data: DocGenerationData): DocsRequest[] {
+  const requests: DocsRequest[] = [];
   let currentIndex = 1;
 
   const titleColor =
@@ -187,7 +210,7 @@ export function generateHeaderRequests(data: DocGenerationData): any[] {
   return requests;
 }
 
-export function generatePageBreakRequest(): any {
+export function generatePageBreakRequest(): DocsRequest {
   return {
     insertPageBreak: {
       endOfSegmentLocation: { segmentId: "" },
@@ -198,7 +221,7 @@ export function generatePageBreakRequest(): any {
 export function generateEmptyTableRequest(
   lesson: LessonEntity,
   teacherSignOff: YesNo
-): any {
+): DocsRequest {
   const footerRow = teacherSignOff === YesNo.YES ? 1 : 0;
   const totalRows = 2 + (lesson.activities?.length || 0) + footerRow;
 
@@ -214,10 +237,10 @@ export function generateEmptyTableRequest(
 export function generateTableContentRequests(
   lesson: LessonEntity,
   tableStartIndex: number,
-  tableRowData: any[],
+  tableRowData: TableRowData,
   settings: TableGenerationSettings
-): any[] {
-  const requests: any[] = [];
+): DocsRequest[] {
+  const requests: DocsRequest[] = [];
   const footerRow = settings.teacherSignOff === YesNo.YES ? 1 : 0;
   const totalRows = 2 + (lesson.activities?.length || 0) + footerRow;
 
@@ -326,7 +349,7 @@ export function generateTableContentRequests(
     },
   });
 
-  const operations: any[] = [];
+  const operations: TableOperation[] = [];
 
   operations.push({
     index: getCellIndex(0, 0) + 1,
@@ -450,7 +473,7 @@ export function generateTableContentRequests(
     });
 
     if (op.style || op.link) {
-      const style: any = { ...op.style };
+      const style: gapi.client.docs.TextStyle = { ...op.style };
       if (op.link) {
         style.link = { url: op.link };
         style.foregroundColor = {
@@ -492,7 +515,7 @@ export function generateTableContentRequests(
   return requests;
 }
 
-export function generateCreateFooterRequest(): any {
+export function generateCreateFooterRequest(): DocsRequest {
   return {
     createFooter: {
       type: "DEFAULT",
@@ -504,7 +527,7 @@ export function generateFooterContentRequest(
   footerId: string,
   borderVariant: Border,
   colorTheme: Color
-): any[] {
+): DocsRequest[] {
   let selectedBorderUrl =
     BORDER_URL_MAP[borderVariant] || BORDER_URL_MAP[Border.BORDER_1];
 
@@ -517,18 +540,27 @@ export function generateFooterContentRequest(
 
   return [
     {
-      insertPositionedObject: {
+      insertInlineImage: {
         uri: selectedBorderUrl,
         endOfSegmentLocation: { segmentId: footerId },
-        objectSize: { width: { magnitude: 525, unit: "PT" } },
-      },
+        objectSize: {
+          width: {
+            magnitude: 525,
+            unit: "PT"
+          }
+        }
+      }
     },
     {
       updateParagraphStyle: {
         paragraphStyle: { alignment: "CENTER" },
-        range: { segmentId: footerId, startIndex: 0, endIndex: 1 },
-        fields: "alignment",
-      },
-    },
+        range: {
+          segmentId: footerId,
+          startIndex: 0,
+          endIndex: 1
+        },
+        fields: "alignment"
+      }
+    }
   ];
 }
