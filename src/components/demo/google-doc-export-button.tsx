@@ -16,6 +16,7 @@ import {
   estimateTableHeight,
   shouldInsertPageBreak,
   generatePageBreakRequest,
+  DocsRequest
 } from "../../lib/google-doc-generator";
 import { YesNo } from "../../hooks/use-checklist-options";
 
@@ -68,6 +69,31 @@ declare global {
     }
   }
 }
+
+async function docsBatchUpdate(
+  documentId: string,
+  accessToken: string,
+  requests: DocsRequest[]
+) {
+  const res = await fetch(
+    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requests }),
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error("Google Docs Batch Update failed");
+  }
+
+  return res;
+}
+
 
 export function GoogleDocExportButton({
   lessons,
@@ -133,124 +159,68 @@ export function GoogleDocExportButton({
             })
         ];
 
-        await fetch(
-          `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ requests: setupRequests }),
-          }
-        );
+        await docsBatchUpdate(documentId, accessToken, setupRequests);
 
         const pageTracker = new PageTracker();
 
-        for (let i = 0; i < lessons.length; i++) {
-            const lesson = lessons[i];
+        let index = 0;
+        for (const lesson of lessons) {
+          const tableHeight = estimateTableHeight(lesson, teacherSignOff);
 
-            const tableHeight = estimateTableHeight(lesson, teacherSignOff);
+          const isFirst = index === 0;
+          const needsPageBreak = shouldInsertPageBreak(pageTracker.getCurrentHeight(), tableHeight, isFirst);
 
-            if (shouldInsertPageBreak(
-              pageTracker.getCurrentHeight(),
-              tableHeight,
-              i === 0
-            )) {
-                await fetch(
-                    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-                    {
-                        method: "POST",
-                        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-                        body: JSON.stringify({ 
-                            requests: [generatePageBreakRequest()]
-                        }),
-                    }
-                );
-                
-                pageTracker.resetPage();
-            } else if (i > 0) {
-                await fetch(
-                    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-                    {
-                        method: "POST",
-                        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-                        body: JSON.stringify({ 
-                            requests: [{ insertText: { text: "\n", endOfSegmentLocation: { segmentId: "" } } }]
-                        }),
-                    }
-                );
-            }
-
-            await fetch(
-                `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-                {
-                    method: "POST",
-                    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        requests: [generateEmptyTableRequest(lesson, teacherSignOff)],
-                    }),
+          if (needsPageBreak) {
+            await docsBatchUpdate(documentId, accessToken, [
+              generatePageBreakRequest()
+            ]);
+            pageTracker.resetPage();
+          } else if (!isFirst) {
+            await docsBatchUpdate(documentId, accessToken, [
+              {
+                insertText: {
+                  text: "\n",
+                  endOfSegmentLocation: { segmentId: "" }
                 }
+              }
+            ]);
+          }
+
+          await docsBatchUpdate(documentId, accessToken, [
+            generateEmptyTableRequest(lesson, teacherSignOff)
+          ]);
+
+          // re-fetch doc and find last inserted table
+          const updatedDoc = await fetchDocumentContent(documentId, accessToken);
+          const content = updatedDoc.body?.content ?? [];
+
+          const tableItem = [...content].reverse().find((item: gapi.client.docs.StructuralElement) => item.table);
+
+          if (tableItem?.table) {
+            const formatRequests = generateTableContentRequests(
+              lesson,
+              tableItem.startIndex!,
+              tableItem.table.tableRows!,
+              {
+                teacherSignOff,
+                includeVideoHyperlinks,
+                colorTheme: color
+              }
             );
 
-            const updatedDoc = await fetchDocumentContent(documentId, accessToken);
-            const content = updatedDoc.body.content;
-            const tableItem = content.slice().reverse().find((item: any) => item.table);
+            await docsBatchUpdate(documentId, accessToken, formatRequests);
+          }
 
-            if (tableItem && tableItem.table) {
-                const formatRequests = generateTableContentRequests(
-                    lesson,
-                    tableItem.startIndex,
-                    tableItem.table.tableRows,
-                    {
-                        teacherSignOff,
-                        includeVideoHyperlinks,
-                        colorTheme: color,
-                    }
-                );
-
-                await fetch(
-                    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-                    {
-                        method: "POST",
-                        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-                        body: JSON.stringify({ requests: formatRequests }),
-                    }
-                );
-            }
-            
-            pageTracker.addTable(tableHeight);
+          pageTracker.addTable(tableHeight);
+          index++;
         }
 
-        const createFooterRes = await fetch(
-          `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ requests: [generateCreateFooterRequest()] }),
-          }
-        );
+        const createFooterRes = await docsBatchUpdate(documentId, accessToken, [generateCreateFooterRequest()] );
 
         const footerResponseData = await createFooterRes.json();
-        const footerId =
-          footerResponseData.replies[0].createFooter.footerId;
+        const footerId = footerResponseData.replies[0].createFooter.footerId;
 
-        await fetch(
-          `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              requests: generateFooterContentRequest(footerId, border, color),
-            }),
-          }
-        );
+        await docsBatchUpdate(documentId, accessToken, generateFooterContentRequest(footerId, border, color));
 
         toast.success("Google Doc created successfully!");
         window.open(
