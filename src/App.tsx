@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Toaster } from 'sonner'
 import { DisplayCodeButton } from './components/demo/display-code-button'
+import { DisplayHelloButton } from './components/demo/display-hello-button'
 import { DisplayJsonButton } from './components/demo/display-json-button'
 import { GoogleDocExportButton } from './components/demo/google-doc-export-button'
 import { openPDFInNewTab, PDFViewer } from './components/pdf-viewer'
@@ -242,6 +243,7 @@ export default function App() {
                 settings={mockUserSettings as unknown as Record<string, unknown>}
               />
               <DisplayCodeButton sourceFiles={demoSourceFiles} />
+              <DisplayHelloButton />
             </div>
           </div>
         </div>
