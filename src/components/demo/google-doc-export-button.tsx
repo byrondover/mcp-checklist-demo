@@ -2,14 +2,20 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Border } from "../printables/selects/select-border";
+import { Color } from "../printables/selects/select-color";
 import { Button } from "../ui/button";
 import { LessonEntity } from "../../types/api-types";
 import {
+  generateDocumentStyleRequest,
   generateHeaderRequests,
   generateEmptyTableRequest,
   generateTableContentRequests,
   generateCreateFooterRequest,
-  generateFooterContentRequest
+  generateFooterContentRequest,
+  PageTracker,
+  estimateTableHeight,
+  shouldInsertPageBreak,
+  generatePageBreakRequest,
 } from "../../lib/google-doc-generator";
 import { YesNo } from "../../hooks/use-checklist-options";
 
@@ -23,6 +29,7 @@ interface GoogleDocExportButtonProps {
   sectionName: string;
   unitName: string;
   border: Border;
+  color: Color;
   includeClassName: YesNo;
   courseClassName: string;
   googleClientId: string;
@@ -68,6 +75,7 @@ export function GoogleDocExportButton({
   sectionName,
   unitName,
   border,
+  color,
   includeClassName,
   courseClassName,
   googleClientId,
@@ -112,14 +120,18 @@ export function GoogleDocExportButton({
         const docData = await createRes.json();
         const documentId = docData.id;
 
-        const headerRequests = generateHeaderRequests({
-          sectionName,
-          courseName,
-          unitName,
-          borderVariant: border,
-          includeClassName,
-          courseClassName,
-        });
+        const setupRequests = [
+            generateDocumentStyleRequest(),
+            ...generateHeaderRequests({
+                sectionName,
+                courseName,
+                unitName,
+                borderVariant: border,
+                includeClassName,
+                courseClassName,
+                colorTheme: color,
+            })
+        ];
 
         await fetch(
           `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
@@ -129,59 +141,85 @@ export function GoogleDocExportButton({
               Authorization: `Bearer ${accessToken}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ requests: headerRequests }),
+            body: JSON.stringify({ requests: setupRequests }),
           }
         );
 
-        for (const lesson of lessons) {
-          await fetch(
-            `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                requests: [generateEmptyTableRequest(lesson, teacherSignOff)],
-              }),
+        const pageTracker = new PageTracker();
+
+        for (let i = 0; i < lessons.length; i++) {
+            const lesson = lessons[i];
+
+            const tableHeight = estimateTableHeight(lesson, teacherSignOff);
+
+            if (shouldInsertPageBreak(
+              pageTracker.getCurrentHeight(),
+              tableHeight,
+              i === 0
+            )) {
+                await fetch(
+                    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+                    {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                            requests: [generatePageBreakRequest()]
+                        }),
+                    }
+                );
+                
+                pageTracker.resetPage();
+            } else if (i > 0) {
+                await fetch(
+                    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+                    {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                            requests: [{ insertText: { text: "\n", endOfSegmentLocation: { segmentId: "" } } }]
+                        }),
+                    }
+                );
             }
-          );
-
-          const updatedDoc = await fetchDocumentContent(
-            documentId,
-            accessToken
-          );
-
-          const content = updatedDoc.body.content;
-          const tableItem = content
-            .slice()
-            .reverse()
-            .find((item: any) => item.table);
-
-          if (tableItem && tableItem.table) {
-            const formatRequests = generateTableContentRequests(
-              lesson,
-              tableItem.startIndex,
-              tableItem.table.tableRows,
-              {
-                teacherSignOff,
-                includeVideoHyperlinks,
-              }
-            );
 
             await fetch(
-              `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ requests: formatRequests }),
-              }
+                `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+                {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        requests: [generateEmptyTableRequest(lesson, teacherSignOff)],
+                    }),
+                }
             );
-          }
+
+            const updatedDoc = await fetchDocumentContent(documentId, accessToken);
+            const content = updatedDoc.body.content;
+            const tableItem = content.slice().reverse().find((item: any) => item.table);
+
+            if (tableItem && tableItem.table) {
+                const formatRequests = generateTableContentRequests(
+                    lesson,
+                    tableItem.startIndex,
+                    tableItem.table.tableRows,
+                    {
+                        teacherSignOff,
+                        includeVideoHyperlinks,
+                        colorTheme: color,
+                    }
+                );
+
+                await fetch(
+                    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+                    {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ requests: formatRequests }),
+                    }
+                );
+            }
+            
+            pageTracker.addTable(tableHeight);
         }
 
         const createFooterRes = await fetch(
@@ -209,7 +247,7 @@ export function GoogleDocExportButton({
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              requests: generateFooterContentRequest(footerId, border),
+              requests: generateFooterContentRequest(footerId, border, color),
             }),
           }
         );
@@ -233,6 +271,7 @@ export function GoogleDocExportButton({
       unitName,
       courseClassName,
       border,
+      color,
       includeClassName,
       teacherSignOff,
       includeVideoHyperlinks,

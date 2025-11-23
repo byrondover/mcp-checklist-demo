@@ -218,6 +218,7 @@ export default function App() {
                   courseName={mockCourse.name}
                   courseClassName={mockClass.name}
                   border={border}
+                  color={color}
                   googleClientId={googleClientId}
                   includeClassName={includeClassName}
                   teacherSignOff={teacherSignOff}
