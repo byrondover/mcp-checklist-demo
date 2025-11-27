@@ -13,6 +13,7 @@ import { YesNo } from '../hooks/use-checklist-options'
 import { useGameBoardOptions } from '../hooks/use-gameboard-options'
 import { mockClass, mockCourse, mockUserSettings } from '../data/checklist-demo-data'
 import { demoGameBoardSourceFiles } from '../lib/demo-gameboard-source-files'
+import { GoogleGameBoardExportButton } from '../components/demo/google-gameboard-export-button'
 
 export default function GameBoardDemo() {
   const [isClient, setIsClient] = useState(false)
@@ -85,6 +86,8 @@ export default function GameBoardDemo() {
     setIncludeClassName(value ? YesNo.YES : YesNo.NO)
   }
 
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
@@ -138,6 +141,21 @@ export default function GameBoardDemo() {
 
             {/* Action Buttons */}
             <div className="flex flex-col gap-3 mt-8">
+              {isClient && section?.lessons && section.lessons.length > 0 && (
+                <GoogleGameBoardExportButton
+                  lessons={section.lessons}
+                  sectionName={section.name}
+                  unitName={unit?.name || ''}
+                  courseName={mockCourse.name}
+                  courseClassName={mockClass.name}
+                  lessonDivider={lessonDivider}
+                  graphicTheme={graphicTheme}
+                  color={color}
+                  settings={mockUserSettings}
+                  googleClientId={googleClientId}
+                  includeClassName={includeClassName}
+                />
+              )}
               {isClient && (
                 <Button onClick={() => openPDFInNewTab(canvasRef.current!, document, color, 'landscape')}>Print</Button>
               )}

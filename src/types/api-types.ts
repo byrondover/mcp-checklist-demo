@@ -13,6 +13,8 @@ export type ActivityType =
 
 export type ActivityClassification = 'ASPIRE_TO_DO' | 'MUST_DO' | 'SHOULD_DO'
 
+export type Workstyle = 'COLLABORATIVE' | 'INDEPENDENT'
+
 export type ResourceType =
   | 'WARM_UP_SLIDE'
   | 'VIDEO_SLIDES'
@@ -63,7 +65,7 @@ export interface ActivityEntity {
   name: string
   classification: ActivityClassification
   type: ActivityType
-  workstyle: 'COLLABORATIVE' | 'INDEPENDENT'
+  workstyle: Workstyle
   order: number
   description: string
   showInTracker: boolean

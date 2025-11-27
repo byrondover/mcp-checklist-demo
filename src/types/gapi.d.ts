@@ -47,6 +47,7 @@ declare namespace gapi {
         updateTableRowStyle?: unknown
         insertPageBreak?: unknown
         createFooter?: unknown
+        updateParagraphStyle?: unknown
         [key: string]: unknown
       }
 
