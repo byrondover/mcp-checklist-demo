@@ -3,6 +3,8 @@ import { Color } from "../components/printables/selects/select-color";
 import { LessonDivider } from "../components/printables/selects/select-lesson-divider";
 import { GraphicTheme } from "../components/printables/selects/select-graphic-theme";
 import { YesNo } from "../hooks/use-checklist-options";
+import { UserSetting } from "../types/user-settings";
+import { hexToDocsRgbColor } from "./utils";
 
 export type DocsRequest = gapi.client.docs.Request;
 
@@ -29,12 +31,6 @@ const LIGHT_GREY: gapi.client.docs.RgbColor = {
   red: 0.9,
   green: 0.9,
   blue: 0.9,
-};
-
-const STATUS_COLORS: Record<string, gapi.client.docs.RgbColor> = {
-  MUST_DO: { red: 0.04, green: 0.32, blue: 0.58 },
-  SHOULD_DO: { red: 1.0, green: 0.55, blue: 0.0 },
-  ASPIRE_TO_DO: { red: 0.06, green: 0.66, blue: 0.6 },
 };
 
 const LESSON_COLORS = [
@@ -314,7 +310,8 @@ export function generatePageTableRequest(itemCount: number): DocsRequest {
 export function generateSnakeContentRequests(
   items: GameBoardItem[],
   tableElement: gapi.client.docs.StructuralElement,
-  data: GameBoardGenerationData
+  data: GameBoardGenerationData,
+  settings: UserSetting
 ): DocsRequest[] {
   const requests: DocsRequest[] = [];
   if (!tableElement.table || !tableElement.table.tableRows) return [];
@@ -407,7 +404,8 @@ export function generateSnakeContentRequests(
         tableStartIndex,
         op.row,
         op.col,
-        data
+        data,
+        settings
       )
     );
   }
@@ -460,10 +458,10 @@ function generateCellContent(
   tableStart: number,
   row: number,
   col: number,
-  data: GameBoardGenerationData
+  data: GameBoardGenerationData,
+  settings: UserSetting
 ): DocsRequest[] {
   const requests: DocsRequest[] = [];
-  // Standard Border
   const borderStyle = {
     width: { magnitude: 1, unit: "PT" },
     dashStyle: "SOLID",
@@ -674,7 +672,8 @@ function generateCellContent(
       const dateText = dueDate ? `${formatDate(dueDate)}\n\n` : "\n\n";
       const activityName = `${activity.name}\n\n`;
       const classification = activity.classification || "MUST_DO";
-      const badgeLabelText = getClassificationLabel(classification);
+      const badgeLabelText =
+        settings.CLASSIFICATION_LABELS[classification].label;
       const workstyleIcon = getWorkstyleIcon(activity.workstyle);
 
       if (dateText) {
@@ -731,15 +730,16 @@ function generateCellContent(
       });
 
       const badgeText = `${badgeLabelText}`;
-      const spaceText = "  ";
+      const spaceText = " ";
       const iconText = `${workstyleIcon}`;
 
       const badgeStart = actStart + activityName.length;
       let currIndex = badgeStart;
+      const badgeRgbColor = hexToDocsRgbColor(
+        settings.CLASSIFICATION_LABELS[classification].color
+      );
       const badgeColor =
-        data.colorTheme === Color.BLACK_AND_WHITE
-          ? BLACK
-          : STATUS_COLORS[classification] || STATUS_COLORS.MUST_DO;
+        data.colorTheme === Color.BLACK_AND_WHITE ? BLACK : badgeRgbColor;
       requests.push({
         insertText: { text: badgeText, location: { index: currIndex } },
       });
@@ -992,18 +992,6 @@ function formatDate(dateString: string): string {
     "Dec",
   ];
   return `${months[date.getMonth()]} ${date.getDate()}`;
-}
-
-/**
- * Get classification label text
- */
-function getClassificationLabel(classification: string): string {
-  const labels: Record<string, string> = {
-    MUST_DO: "Must do",
-    SHOULD_DO: "Should do",
-    ASPIRE_TO_DO: "Aspire to do",
-  };
-  return labels[classification] || "Must do";
 }
 
 /**

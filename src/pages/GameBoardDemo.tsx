@@ -151,6 +151,7 @@ export default function GameBoardDemo() {
                   lessonDivider={lessonDivider}
                   graphicTheme={graphicTheme}
                   color={color}
+                  settings={mockUserSettings}
                   googleClientId={googleClientId}
                   includeClassName={includeClassName}
                 />

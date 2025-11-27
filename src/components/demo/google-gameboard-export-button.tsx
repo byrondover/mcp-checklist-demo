@@ -18,6 +18,7 @@ import {
   DocsRequest,
   GameBoardGenerationData,
 } from "../../lib/google-gameboard-generator";
+import { UserSetting } from "../../types/user-settings";
 
 const SCOPES =
   "https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.file";
@@ -32,6 +33,7 @@ interface GoogleGameBoardExportButtonProps {
   lessonDivider: LessonDivider;
   graphicTheme: GraphicTheme;
   color: Color;
+  settings: UserSetting;
   includeClassName: YesNo;
   googleClientId: string;
 }
@@ -164,6 +166,7 @@ export function GoogleGameBoardExportButton({
   lessonDivider,
   graphicTheme,
   color,
+  settings,
   includeClassName,
   googleClientId,
 }: GoogleGameBoardExportButtonProps) {
@@ -234,7 +237,8 @@ export function GoogleGameBoardExportButton({
             const contentRequests = generateSnakeContentRequests(
               pageItems,
               updatedTable,
-              generationData
+              generationData,
+              settings
             );
 
             const batchSize = 40;
